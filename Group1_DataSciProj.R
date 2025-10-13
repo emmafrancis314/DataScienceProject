@@ -1,18 +1,20 @@
 setwd('/Users/mattamor/Library/CloudStorage/OneDrive-Personal/School/ECON 6374 - ProbStat/DataSciProj')
 install.packages("data.table")
 library(data.table)
-install.packages("dplyr")
-library(dplyr)
+install.packages("tidyverse")
+library(tidyverse)
+install.packages("scales")
+library(scales)
 
 #####
 #1 
 #####
-## downloaded data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2020https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2020
+## Downloading data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2020https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2020
 
 #######
 #2 
 #######
-## assigning colnames is moot. The dataset includes them as-is
+## Assigning colnames is moot. The dataset includes them as-is
 
 ########
 #3
@@ -87,7 +89,40 @@ gc()
 
 #4b
 # Binding 2021 and 2023
-ALFL_LAR <- rbind(LAR_21,LAR_23)
+FLAL <- rbind(LAR_21,LAR_23)
 # Removing redundant data
 rm(LAR_21,LAR_23)
+gc()
+
+#4c
+# Using stringr::str_pad to convert the county_code
+## into a character vector and remove the first two digits.
+FLAL$county_code_3 <- str_pad(substr(FLAL$county_code,3,5),width = 3, pad = "0", side = "left")
+# Moving the new column next to the original county_code column.
+FLAL <- FLAL %>%
+  relocate(county_code_3, .after = county_code)
+## Note that AL and FL cannot be differentiated by county_code_3
+## because both states have the same list of county codes
+## without their two state-level digits.
+## An explanation of FIPS codes and the full list is available here:
+## https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt
+
+#4d
+# Creating a new variable from loan_amount,
+## and downgrading its class from integer64 to integer (necessary for the next step)
+FLAL$loan_amount_d <- as.integer(FLAL$loan_amount)
+# Using scales::dollar to convert the column 
+## into a character class with dollar formatting
+FLAL$loan_amount_d <- dollar(FLAL$loan_amount_d)
+# Moving the new column next to the original loan_amount column
+FLAL <- FLAL %>%
+  relocate(loan_amount_d, .after = loan_amount)
+## The assignment was to "Add a format to loan_amount..."
+## but since that variable is used in calculations later in the assignment,
+## and the changes in formatting turns the numeric column into a character class,
+## we created a new column with the formatting and left the old one as-is.
+## Also note that converting loan_amount into a standard integer
+## caused one number to end up as an NA.
+## That value is the maximum of the variable ($2.3 billion) and a clear outlier.
+## It will not be included in the formatted loan_amount_d column.
 gc()
