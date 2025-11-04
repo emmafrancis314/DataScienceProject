@@ -1,0 +1,684 @@
+setwd('/Users/adrisoto/Desktop/Homework 2025/Stats Data Assignment')
+install.packages("data.table")
+library(data.table)
+install.packages("dplyr")
+library(dplyr)
+library(tidyverse)
+install.packages('scales')
+library(scales)
+library(stringr)
+library(ggplot2)
+
+#####
+#1 
+#####
+## downloaded data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021
+## Downloading data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021
+
+#######
+#2 
+#######
+## assigning colnames is moot. The dataset includes them as-is
+## Assigning colnames is moot. The dataset includes them as-is
+
+#3
+########
+#Loading in the LAR from 2021 and 2023 using data.table::fread
+## only importing the dataset with the columns of interest for question 3
+LAR_21 <- fread('2021_public_lar.csv', select = c("activity_year","state_code","loan_amount","interest_rate"))
+LAR_23 <- fread('2023_public_lar_csv.csv', select = c("activity_year","state_code","loan_amount","interest_rate"))
+# Separating the data into AL+FL and the rest of the US
+USLAR21 <- LAR_21[!state_code %in% c("AL","FL")]
+ALFL21 <- LAR_21[state_code %in% c("AL","FL")]
+USLAR23 <- LAR_23[!state_code %in% c("AL","FL")]
+ALFL23 <- LAR_23[state_code %in% c("AL","FL")]
+# Binding the data for both years
+USLAR <- rbind(USLAR21,USLAR23)
+ALFL <- rbind(ALFL21,ALFL23)
+# Getting rid of datasets we don't need for the rest of Question 3
+rm(LAR_21,LAR_23,USLAR21,USLAR23,ALFL21,ALFL23)
+# Freeing unused memory
+gc()
+
+#3a
+# Calculating the medians
+median(USLAR$loan_amount, na.rm = TRUE) 
+# Median loan amount for US excluding Alabama and Florida in 2021 and 2023: 
+## $225,000
+median(ALFL$loan_amount, na.rm = TRUE)  
+# Median loan amount for Alabama and Florida in 2021 and 2023: 
+## $225,000
+## These are the same!
+## The loan amounts are given in $10,000 intervals so
+## it isn't surprising that the medians for FL and AL would be
+## close to the median for the rest of the nation.
+
+# Clearing the memory to start the rest of the project
+rm(list = ls())
+gc()
+
+#3b
+# Converting interest rate columns into numeric vectors,
+## which "coerces" "Exempt" values into NAs, 
+## which are removed by the mean formula.
+USLARm <- as.numeric(USLAR$interest_rate) 
+ALFLm <- as.numeric(ALFL$interest_rate) 
+# Calculating the means
+mean(USLARm,na.rm = TRUE) 
+# Mean interest rate for US excluding Alabama and Florida in 2021 and 2023: 
+## 4.144381%
+mean(ALFLm,na.rm = TRUE)  
+# Mean interest rate for Alabama and Florida in 2021 and 2023: 
+## 4.392184%
+
+# Clearing the memory to start the rest of the project
+rm(list = ls())
+gc()
+
+#########
+#4
+#########
+## While loading in these massive datasets,
+## please run each line one at a time, 
+## and wait for the process to complete.
+## The code is attempting to minimize the memory load as it goes.
+#4a
+# Loading the full 2021 dataset
+LAR_21 <- fread('2021_public_lar.csv')
+# Overwriting the full 2021 csv with a filtered dataset,
+## including only observations from Alabama and Florida.
+LAR_21 <- LAR_21[state_code %in% c("AL","FL")]
+gc()
+
+# Loading and overwriting 2023 data with AL+FL dataset
+LAR_23 <- fread('2023_public_lar_csv.csv')
+LAR_23 <- LAR_23[state_code %in% c("AL","FL")]
+gc()
+
+#4b
+# Binding 2021 and 2023
+FLAL <- rbind(LAR_21,LAR_23)
+FLAL <- rbind(LAR_21,LAR_23)
+# Removing redundant data
+rm(LAR_21,LAR_23)
+gc()
+
+#4c
+# Using stringr::str_pad to convert the county_code
+## into a character vector and remove the first two digits.
+FLAL$county_code_3 <- str_pad(substr(FLAL$county_code,3,5),width = 3, pad = "0", side = "left")
+# Moving the new column next to the original county_code column.
+FLAL <- FLAL %>%
+  relocate(county_code_3, .after = county_code)
+## Note that AL and FL cannot be differentiated by county_code_3
+## because both states have the same list of county codes
+## without their two state-level digits.
+## An explanation of FIPS codes and the full list is available here:
+## https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt
+
+#4d
+# Creating a new variable from loan_amount,
+## and downgrading its class from integer64 to integer (necessary for the next step)
+FLAL$loan_amount_d <- as.integer(FLAL$loan_amount)
+# Using scales::dollar to convert the column 
+## into a character class with dollar formatting
+FLAL$loan_amount_d <- dollar(FLAL$loan_amount_d)
+# Moving the new column next to the original loan_amount column
+FLAL <- FLAL %>%
+  relocate(loan_amount_d, .after = loan_amount)
+## The assignment was to "Add a format to loan_amount..."
+## but since that variable is used in calculations later in the assignment,
+## and the changes in formatting turns the numeric column into a character class,
+## we created a new column with the formatting and left the old one as-is.
+## Also note that converting loan_amount into a standard integer
+## caused one number to end up as an NA.
+## That value is the maximum of the variable ($2.3 billion) and a clear outlier.
+## It will not be included in the formatted loan_amount_d column.
+gc()
+
+####
+#5 Provide the following summaries:
+####
+#a) max, min, and avg loan amount by loan type
+##recoding numeric loan types to character names
+FLAL <- FLAL %>%
+  ##Changing the numeric loan type into text labels
+  mutate(loan_type = recode(loan_type, 
+                        '1' = 'Conventional', 
+                        '2'= 'FHA', 
+                        '3'= 'VA', 
+                        '4' = 'FSA/RHS'))
+##Checking names of columns for the question
+names(FLAL)
+##Creating summary of data
+loan_summary <- FLAL %>%
+  group_by(state_code, activity_year, loan_type) %>%
+  summarise(
+    Min_Loan = min(loan_amount, na.rm = TRUE),
+    Max_Loan = max(loan_amount, na.rm = TRUE),
+    Avg_Loan = mean(loan_amount, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(state_code, activity_year, loan_type)
+print(loan_summary)
+##5b) Creating a grouped bar chart with avg loan value by loan purpose
+#####Recode the numeric loan purpose to character for labeling
+FLAL <- FLAL %>%
+  mutate(loan_purpose = recode(loan_purpose,
+                               '1' = 'Home Purchase',
+                               '2' = 'Home Improvement',
+                               '31' = 'Refinancing',
+                               '32' = 'Cash-Out Refinancing',
+                               '4' = 'Other',
+                               .default = 'Not Applicable'))
+##Calculate avg loan amount by state, year and loan purpose
+loan_purpose_summary <- FLAL %>%
+  ##Filter NA loan_amount rows so that ggplot is able to pull numbers 
+  filter(!is.na(loan_amount)) %>%
+  # Filter out "Not Applicable" values 
+  filter(loan_purpose != 'Not Applicable') %>%
+  #Make sure state code is numeric
+  mutate(state_code = as.character(state_code)) %>%
+####Clean factor levels before summarizing to keep rows with NA in data###
+  # Group the data by the required variables
+  group_by(state_code, activity_year, loan_purpose) %>%
+summarise(
+  Avg_Loan_Purpose = mean(loan_amount, na.rm = TRUE), 
+  .groups = 'drop'
+)
+
+###5b)
+##Creating the grouped bar chart w/avg loan value by loan purpose
+###
+loan_purpose_chart <- ggplot(
+  loan_purpose_summary,
+  aes(x = factor(activity_year), # Explicitly define x as factor here
+      y = Avg_Loan_Purpose,
+      fill = loan_purpose)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(Avg_Loan_Purpose / 1000, 0),
+                                   big.mark = ',') 
+                       , 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  
+  # Grouping by state and year
+  facet_wrap(~state_code, scales = 'free_y') +
+  labs(
+    title = 'Average HMDA Loan Value by Purpose, State, and Year',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Loan Purpose'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+print(loan_purpose_chart)
+
+###
+# 5c) Table of avg value of interest rates for 2021 and 2023 by property type
+average_rates_table <- FLAL %>%
+  # --- Step 1: Data Cleaning and Labeling ---
+  mutate(
+    # Convert to character for cleaning
+    interest_rate_clean = as.character(interest_rate),
+    interest_rate_clean = str_replace_all(interest_rate_clean, ",", "."),
+    # Remove all other non-numeric, non-period characters (e.g., 'NA', 'Exempt', '%')
+    interest_rate_clean = str_replace_all(interest_rate_clean, "[^0-9\\.]", ""),
+    # Convert to numeric (non-numeric entries safely become NA)
+    Interest_Rate_Numeric = as.numeric(interest_rate_clean),
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # --- Step 2: Filter for the target years (2021 and 2023) ---
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, activity_year) %>% 
+  # Generating summary of interest rates by property
+  summarise(
+    # Calculate the mean
+    Average_Interest_Rate = mean(Interest_Rate_Numeric, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Interest Rate (%)` = round(Average_Interest_Rate, 2)
+  ) %>%
+  # Select final columns for table presentation
+  select(
+    `Property Type Label`,
+    Year = activity_year,
+    `Avg Interest Rate (%)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, Year)
+
+# Print the final result table
+print(average_rates_table)
+
+###5d) Create a two way table of action taken on the loan by ethnicity with 
+#ONLY count data 
+ethnicity_loan_table<- FLAL %>% 
+  filter(derived_ethnicity !='Free Form Text Only') %>% 
+   group_by(action_taken, derived_ethnicity) %>% 
+  summarise(
+    Count= n(), 
+    .groups = 'drop'
+  )
+print(ethnicity_loan_table)
+
+##ii.Ethnicity Not Available category percentage: 24.4%. It looks like it is mostly
+##randomly distributed for the missing, but the majority of the NA's are coming from 
+#the 1 - Loan originated category and 7 - Preapproved request denied category. 
+ethnicity_loan_table %>%
+  summarise(
+    Total_Records = sum(Count),
+    Total_NA = sum(Count[derived_ethnicity == "Ethnicity Not Available"]),
+    Percent_NA = (Total_NA / Total_Records) * 100
+  )
+
+###5c) Create a two way table of action taken on the loan by applicant age 
+#ONLY using percentages 
+age_loan_table <- FLAL %>% 
+  filter(applicant_age != 'Free Form Text Only') %>% 
+  mutate(
+    action_taken = case_when(
+      action_taken == 1 ~ "1 - Loan originated",
+      action_taken == 2 ~ "2 - Application approved but not accepted",
+      action_taken == 3 ~ "3 - Application denied",
+      action_taken == 4 ~ "4 - Application withdrawn by applicant",
+      action_taken == 5 ~ "5 - File closed for incompleteness",
+      action_taken == 6 ~ "6 - Purchased loan",
+      action_taken == 7 ~ "7 - Preapproval request denied",
+      action_taken == 8 ~ "8 - Preapproval request approved but not accepted",
+      TRUE ~ as.character(action_taken)
+    ),
+    applicant_age = ifelse(applicant_age == "8888", "N/A", applicant_age)
+  ) %>%
+  group_by(action_taken, applicant_age) %>% 
+  summarise(Count = n(), .groups = 'drop') %>%
+  mutate(Percent = (Count / sum(Count)) * 100)
+print(age_loan_table)
+
+##Clearing environment for next question
+rm(age_loan_table, average_rates_table, ethnicity_loan_table, loan_purpose_summary, loan_summary, loan_purpose_chart)
+gc()
+
+####
+#6) Provide the following summaries: 
+####
+#a) --- min max and avg loan value by loan type ----
+FLAL <- FLAL %>%
+  ##Changing the numeric loan type into text labels
+  mutate(loan_type = recode(loan_type, 
+                            '1' = 'Conventional', 
+                            '2'= 'FHA', 
+                            '3'= 'VA', 
+                            '4' = 'FSA/RHS'))
+##Creating summary of data
+loan_summary <- FLAL %>%
+  group_by(state_code, activity_year, loan_type) %>%
+  summarise(
+    Min_Loan = min(loan_amount, na.rm = TRUE),
+    Max_Loan = max(loan_amount, na.rm = TRUE),
+    Avg_Loan = mean(loan_amount, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(state_code, activity_year, loan_type)
+print(loan_summary)
+##6b)##Creating the grouped bar chart w/avg loan value by loan purpose
+###
+loan_purpose_chart <- ggplot(
+  loan_purpose_summary,
+  aes(x = factor(activity_year), # Explicitly define x as factor here
+      y = Avg_Loan_Purpose,
+      fill = loan_purpose)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(Avg_Loan_Purpose / 1000, 0),
+                                   big.mark = ',') 
+                       , 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  
+  # Grouping by state and year (***FIXED SYNTAX HERE***)
+  facet_wrap(~state_code, scales = 'free_y') +
+  labs(
+    title = 'Average HMDA Loan Value by Purpose, State, and Year',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Loan Purpose'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+print(loan_purpose_chart)
+
+###6b) Create table of the avg value of loans for 2021 and 2023 by property type
+#Table of avg value of loan amount for 2021 and 2023 by property type
+avg_loanamount_table <- FLAL %>%
+  # Step 1: Data Cleaning and Labeling 
+  mutate(
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # Step 2: Filter for the target years (2021 and 2023)
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, state_code, activity_year) %>% 
+  # Generating summary of loan amounts by property and state
+  summarise(
+    # Calculate the mean
+    Average_Loan_Amount = mean(loan_amount, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Loan Amount ($)` = round(Average_Loan_Amount, 2)
+  ) %>%
+  # Select final columns for table presentation
+  select(
+    `Property Type Label`,
+    State = state_code,
+    Year = activity_year,
+    `Avg Loan Amount ($)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, State, Year)
+
+# Print
+print(avg_loanamount_table)
+
+##6b) Graph the avg loan amount and loan types 
+loan_amount_chart <- ggplot(
+  avg_loanamount_table,
+  aes(x = factor(Year),
+      y = `Avg Loan Amount ($)`,
+      fill = `Property Type Label`)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(`Avg Loan Amount ($)` / 1000, 0),
+                                   big.mark = ','), 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  # Grouping by state
+  facet_wrap(~State, scales = 'free_y') +
+  labs(
+    title = 'Average Loan Amount by Property Type, State, and Year (2021 & 2023)',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Property Type'
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+
+print(loan_amount_chart)
+
+###6c) Table of avg value of loan value for 2021 and 2023 by property type
+average_loan_amt_table <- FLAL %>%
+  # Step 1: Data Cleaning and Labeling
+  mutate(
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # Step 2: Filter for the target years (2021 and 2023) ---
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, activity_year) %>% 
+  # Generating summary of loan amounts by property
+  summarise(
+    # Calculate the mean
+    Average_Loan_Amount = mean(loan_amount, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Loan Amount ($)` = round(Average_Loan_Amount, 2)
+  ) %>%
+  # Select final columns for table 
+  select(
+    `Property Type Label`,
+    Year = activity_year,
+    `Avg Loan Amount ($)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, Year)
+
+# Print the final result table
+print(average_loan_amt_table)
+
+###6d) Create a two way table of actions taken on each loan by occupancy
+#with ONLY count data 
+occupancy_loan_table <- FLAL %>% 
+  mutate(
+    action_taken = case_when(
+      action_taken == 1 ~ "1 - Loan originated",
+      action_taken == 2 ~ "2 - Approved",
+      action_taken == 3 ~ "3 - Denied",
+      action_taken == 4 ~ "4 - Withdrawn",
+      action_taken == 5 ~ "5 - Incomplete",
+      action_taken == 6 ~ "6 - Purchased loan",
+      action_taken == 7 ~ "7 - Preapproval denied",
+      action_taken == 8 ~ "8 - Preapproval approved",
+      TRUE ~ as.character(action_taken)
+    ),
+    occupancy_type = case_when(
+      occupancy_type == 1 ~ "1 - Principal residence",
+      occupancy_type == 2 ~ "2 - Second residence",
+      occupancy_type == 3 ~ "3 - Investment property",
+      TRUE ~ as.character(occupancy_type)
+    )
+  ) %>%
+  group_by(action_taken, occupancy_type) %>% 
+  summarise(
+    Count = n(), 
+    .groups = 'drop'
+  )
+
+print(occupancy_loan_table)
+##6d)iiii) Graphing the occupancy loan table
+occupancy_chart <- ggplot(
+  occupancy_loan_table,
+  aes(x = action_taken,
+      y = Count,
+      fill = occupancy_type)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the counts for each bar
+  geom_text(
+    aes(label = format(Count, big.mark = ',')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3,
+    angle = 0
+  ) +
+  
+  labs(
+    title = 'Loan Actions by Occupancy Type',
+    x = 'Action Taken',
+    y = 'Count',
+    fill = 'Occupancy Type'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_comma()
+  )
+
+print(occupancy_chart)
+
+######
+##7) Filtering the data set and comparing the summary statistics in the rates
+## for open end line of credit and derived ethnicity:
+
+#Finding the summary stats without filters first:
+FLAL %>%
+  group_by(derived_ethnicity, open_end_line_of_credit) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  filter(derived_ethnicity!='Free Form Text Only') %>% 
+  group_by(derived_ethnicity) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+#Filtering the dataset and then running summary statistics:
+FLAL %>%
+  filter(
+    #7a)
+    loan_type == 1,
+    #7b)
+    occupancy_type == 1,
+    #7c)
+    loan_purpose == 1,
+    #7d)
+    reverse_mortgage == 2,
+    derived_ethnicity != "Free Form Text Only"  # Remove free form text
+  ) %>%
+  #Because open end line of credit is a binary/categorical we need to 
+  #use a frequency table
+  group_by(derived_ethnicity, open_end_line_of_credit) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  group_by(derived_ethnicity) %>%
+  mutate(percentage = n / sum(n) * 100)
+##Comparing the two summary stats, we see a difference in the rates. 
+#There is an large decrease in the avg when we apply the filters. 
+#We also see Hispanic/Latino's have a higher avg % after applying filters.
+
+####
+#8) New dataset that is grouped by year, state and county. 
+####
+
+# Recode debt to income ratio first so that it runs with 
+#the summary statistics code
+FLAL_with_dti <- FLAL %>%
+  mutate(
+    # Remove punctuation and extract first two characters
+    dti_numeric = as.numeric(str_sub(gsub("[^0-9]", "", debt_to_income_ratio), 1, 2)),
+    # Create indicator for DTI below 45%
+    dti_below_45 = ifelse(dti_numeric < 45, 1, 0),
+    # Convert interest_rate to numeric
+    interest_rate = as.numeric(interest_rate)
+  )
+
+# Create summary statistics
+FLAL_summary <- FLAL_with_dti %>% 
+  group_by(activity_year, state_code, county_code) %>%
+  summarise(
+    # a) avg interest rate
+    avg_interest_rate = mean(interest_rate, na.rm = TRUE), 
+    # b) percent of loan originations
+    loan_originated = mean(action_taken == 1, na.rm = TRUE) * 100, 
+    # c) Percent of debt to income less than 45
+    pct_dti_below_45 = mean(dti_below_45, na.rm = TRUE) * 100, 
+    # d) Percent of loans from Freddie
+    pct_freddie_mac = mean(purchaser_type == 2, na.rm = TRUE) * 100, 
+    # e) percent of biz or commercial purpose 
+    business_purpose = mean(business_or_commercial_purpose == 1, na.rm = TRUE) * 100,  # Added == 1
+    # total loans in each group
+    n_loans = n(),
+    .groups = 'drop'
+  )
+
+head(FLAL_summary)
+
+####
+#9 Reshape the data for the count of loan approvals by year and county 
+####
+
+##Filtering for loan approvals and creating county counts by yr 
+loan_approvals<- FLAL %>% 
+  filter(action_taken == 1) %>% #Where 1 = loan orginated/approved
+  group_by(activity_year, state_code, county_code) %>% 
+  summarise(count = n(), .groups = 'drop')
+
+#Reshaping the data from long to wide so that we can use count data 
+loan_approvals_wide<- loan_approvals %>% 
+  filter(activity_year %in% c(2021, 2023)) %>% 
+  pivot_wider(
+    names_from = activity_year, 
+    values_from = count, 
+    names_prefix = 'count_'
+  ) %>% 
+  #Only using county identifiers and counts 
+  select(state_code, county_code, count_2021, count_2023)
+
+#9b) calculate % difference 
+loan_approvals_wide<- loan_approvals_wide %>% 
+  mutate(
+    pct_change = ((count_2023 - count_2021)/ count_2021) * 100, 
+    absolute_pct_change = abs(pct_change)
+  )
+
+#9c) Print top 10 counties with largest abs pct changes 
+top_10_changes <- loan_approvals_wide %>% 
+  arrange(desc(absolute_pct_change)) %>% 
+  slice(1:10) %>% 
+  mutate(
+    #sprintf gives us the 2 decimal places after the percent 
+    pct_change_formatted = sprintf("%.2f%%", pct_change) 
+  ) %>%
+  select(state_code, county_code, count_2021, count_2023, pct_change_formatted)
+  )
+
+print(top_10_changes)
