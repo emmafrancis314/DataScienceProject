@@ -1,0 +1,1576 @@
+#'install necessary libraries
+#'install.packages("data.table")
+#'install.packages("dplyr")
+#'install.packages('scales')
+#'install.packages("fredr")
+
+
+#load necessary libraries
+pacman::p_load(
+  data.table,
+  readxl,
+  readr,
+  dplyr,
+  tidyverse,
+  scales,
+  stringr,
+  ggplot2,
+  tigris,
+  purrr,
+  lubridate,
+  fredr,
+  httr,
+  jsonlite,
+  sf,
+  here,
+  tidycensus
+)
+
+
+#' Visit this website:https://fredaccount.stlouisfed.org/apikey
+#' Make an account and request a FRED key and then 
+#' place it where mine is in the parentheses
+#' You can also put it in your .Renviron file, but I figured I'd 
+#' put it here so it
+#'fread api
+fredr_set_key("e5b6be8aef601a6f82c59e218a02b346")
+census_api_key("a37aedc78d26feef7c7f6c0442c6134d9d913b86", install = TRUE, overwrite = TRUE)
+
+#####
+#1 
+#####
+## downloaded data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021
+## Downloading data into wd from https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021https://ffiec.cfpb.gov/data-publication/snapshot-national-loan-level-dataset/2021
+
+#######
+#2 
+#######
+## assigning colnames is moot. The dataset includes them as-is
+## Assigning colnames is moot. The dataset includes them as-is
+
+#3
+########
+#Loading in the LAR from 2021 and 2023 using data.table::fread
+## only importing the dataset with the columns of interest for question 3
+LAR_21 <- fread('2021_public_lar.csv', select = c("activity_year","state_code","loan_amount","interest_rate"))
+LAR_23 <- fread('2023_public_lar_csv.csv', select = c("activity_year","state_code","loan_amount","interest_rate"))
+# Separating the data into AL+FL and the rest of the US
+USLAR21 <- LAR_21[!state_code %in% c("AL","FL")]
+ALFL21 <- LAR_21[state_code %in% c("AL","FL")]
+USLAR23 <- LAR_23[!state_code %in% c("AL","FL")]
+ALFL23 <- LAR_23[state_code %in% c("AL","FL")]
+# Binding the data for both years
+USLAR <- rbind(USLAR21,USLAR23)
+ALFL <- rbind(ALFL21,ALFL23)
+# Getting rid of datasets we don't need for the rest of Question 3
+rm(LAR_21,LAR_23,USLAR21,USLAR23,ALFL21,ALFL23)
+# Freeing unused memory
+gc()
+
+#3a
+# Calculating the medians
+median(USLAR$loan_amount, na.rm = TRUE) 
+# Median loan amount for US excluding Alabama and Florida in 2021 and 2023: 
+## $225,000
+median(ALFL$loan_amount, na.rm = TRUE)  
+# Median loan amount for Alabama and Florida in 2021 and 2023: 
+## $225,000
+## These are the same!
+## The loan amounts are given in $10,000 intervals so
+## it isn't surprising that the medians for FL and AL would be
+## close to the median for the rest of the nation.
+
+# Clearing the memory to start the rest of the project
+#rm(list = ls())
+gc()
+
+#3b
+# Converting interest rate columns into numeric vectors,
+## which "coerces" "Exempt" values into NAs, 
+## which are removed by the mean formula.
+USLARm <- as.numeric(USLAR$interest_rate) 
+ALFLm <- as.numeric(ALFL$interest_rate) 
+# Calculating the means
+mean(USLARm,na.rm = TRUE) 
+# Mean interest rate for US excluding Alabama and Florida in 2021 and 2023: 
+## 4.144381%
+mean(ALFLm,na.rm = TRUE)  
+# Mean interest rate for Alabama and Florida in 2021 and 2023: 
+## 4.392184%
+
+# Clearing the memory to start the rest of the project
+rm(list = ls())
+gc()
+
+#########
+#4
+#########
+## While loading in these massive datasets,
+## please run each line one at a time, 
+## and wait for the process to complete.
+## The code is attempting to minimize the memory load as it goes.
+#4a
+# Loading the full 2021 dataset
+LAR_21 <- fread('2021_public_lar.csv')
+# Overwriting the full 2021 csv with a filtered dataset,
+## including only observations from Alabama and Florida.
+LAR_21 <- LAR_21[state_code %in% c("AL","FL")]
+gc()
+
+# Loading and overwriting 2023 data with AL+FL dataset
+LAR_23 <- fread('2023_public_lar_csv.csv')
+LAR_23 <- LAR_23[state_code %in% c("AL","FL")]
+gc()
+
+#4b
+# Binding 2021 and 2023
+FLAL <- rbind(LAR_21,LAR_23)
+FLAL <- rbind(LAR_21,LAR_23)
+# Removing redundant data
+rm(LAR_21,LAR_23)
+gc()
+
+#4c
+# Using stringr::str_pad to convert the county_code
+## into a character vector and remove the first two digits.
+FLAL$county_code_3 <- str_pad(substr(FLAL$county_code,3,5),width = 3, pad = "0", side = "left")
+# Moving the new column next to the original county_code column.
+FLAL <- FLAL %>%
+  relocate(county_code_3, .after = county_code)
+## Note that AL and FL cannot be differentiated by county_code_3
+## because both states have the same list of county codes
+## without their two state-level digits.
+## An explanation of FIPS codes and the full list is available here:
+## https://transition.fcc.gov/oet/info/maps/census/fips/fips.txt
+
+#4d
+# Creating a new variable from loan_amount,
+## and downgrading its class from integer64 to integer (necessary for the next step)
+FLAL$loan_amount_d <- as.integer(FLAL$loan_amount)
+# Using scales::dollar to convert the column 
+## into a character class with dollar formatting
+FLAL$loan_amount_d <- dollar(FLAL$loan_amount_d)
+# Moving the new column next to the original loan_amount column
+FLAL <- FLAL %>%
+  relocate(loan_amount_d, .after = loan_amount)
+## The assignment was to "Add a format to loan_amount..."
+## but since that variable is used in calculations later in the assignment,
+## and the changes in formatting turns the numeric column into a character class,
+## we created a new column with the formatting and left the old one as-is.
+## Also note that converting loan_amount into a standard integer
+## caused one number to end up as an NA.
+## That value is the maximum of the variable ($2.3 billion) and a clear outlier.
+## It will not be included in the formatted loan_amount_d column.
+gc()
+
+####
+#5 Provide the following summaries:
+####
+#a) max, min, and avg loan amount by loan type
+##recoding numeric loan types to character names
+FLAL <- FLAL %>%
+  ##Changing the numeric loan type into text labels
+  mutate(loan_type = recode(loan_type, 
+                            '1' = 'Conventional', 
+                            '2'= 'FHA', 
+                            '3'= 'VA', 
+                            '4' = 'FSA/RHS'))
+##Checking names of columns for the question
+names(FLAL)
+##Creating summary of data
+loan_summary <- FLAL %>%
+  group_by(state_code, activity_year, loan_type) %>%
+  summarise(
+    Min_Loan = min(loan_amount, na.rm = TRUE),
+    Max_Loan = max(loan_amount, na.rm = TRUE),
+    Avg_Loan = mean(loan_amount, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(state_code, activity_year, loan_type)
+print(loan_summary)
+##5b) Creating a grouped bar chart with avg loan value by loan purpose
+#####Recode the numeric loan purpose to character for labeling
+FLAL <- FLAL %>%
+  mutate(loan_purpose = recode(loan_purpose,
+                               '1' = 'Home Purchase',
+                               '2' = 'Home Improvement',
+                               '31' = 'Refinancing',
+                               '32' = 'Cash-Out Refinancing',
+                               '4' = 'Other',
+                               .default = 'Not Applicable'))
+##Calculate avg loan amount by state, year and loan purpose
+loan_purpose_summary <- FLAL %>%
+  ##Filter NA loan_amount rows so that ggplot is able to pull numbers 
+  filter(!is.na(loan_amount)) %>%
+  # Filter out "Not Applicable" values 
+  filter(loan_purpose != 'Not Applicable') %>%
+  #Make sure state code is numeric
+  mutate(state_code = as.character(state_code)) %>%
+  ####Clean factor levels before summarizing to keep rows with NA in data###
+  # Group the data by the required variables
+  group_by(state_code, activity_year, loan_purpose) %>%
+  summarise(
+    Avg_Loan_Purpose = mean(loan_amount, na.rm = TRUE), 
+    .groups = 'drop'
+  )
+
+###5b)
+##Creating the grouped bar chart w/avg loan value by loan purpose
+###
+loan_purpose_chart <- ggplot(
+  loan_purpose_summary,
+  aes(x = factor(activity_year), # Explicitly define x as factor here
+      y = Avg_Loan_Purpose,
+      fill = loan_purpose)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(Avg_Loan_Purpose / 1000, 0),
+                                   big.mark = ',') 
+                       , 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  
+  # Grouping by state and year
+  facet_wrap(~state_code, scales = 'free_y') +
+  labs(
+    title = 'Average HMDA Loan Value by Purpose, State, and Year',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Loan Purpose'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+print(loan_purpose_chart)
+
+###
+# 5c) Table of avg value of interest rates for 2021 and 2023 by property type
+average_rates_table <- FLAL %>%
+  # --- Step 1: Data Cleaning and Labeling ---
+  mutate(
+    # Convert to character for cleaning
+    interest_rate_clean = as.character(interest_rate),
+    interest_rate_clean = str_replace_all(interest_rate_clean, ",", "."),
+    # Remove all other non-numeric, non-period characters (e.g., 'NA', 'Exempt', '%')
+    interest_rate_clean = str_replace_all(interest_rate_clean, "[^0-9\\.]", ""),
+    # Convert to numeric (non-numeric entries safely become NA)
+    Interest_Rate_Numeric = as.numeric(interest_rate_clean),
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # --- Step 2: Filter for the target years (2021 and 2023) ---
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, activity_year) %>% 
+  # Generating summary of interest rates by property
+  summarise(
+    # Calculate the mean
+    Average_Interest_Rate = mean(Interest_Rate_Numeric, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Interest Rate (%)` = round(Average_Interest_Rate, 2)
+  ) %>%
+  # Select final columns for table presentation
+  select(
+    `Property Type Label`,
+    Year = activity_year,
+    `Avg Interest Rate (%)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, Year)
+
+# Print the final result table
+print(average_rates_table)
+
+###5d) Create a two way table of action taken on the loan by ethnicity with 
+#ONLY count data 
+ethnicity_loan_table<- FLAL %>% 
+  filter(derived_ethnicity !='Free Form Text Only') %>% 
+  group_by(action_taken, derived_ethnicity) %>% 
+  summarise(
+    Count= n(), 
+    .groups = 'drop'
+  )
+print(ethnicity_loan_table)
+
+##ii.Ethnicity Not Available category percentage: 24.4%. It looks like it is mostly
+##randomly distributed for the missing, but the majority of the NA's are coming from 
+#the 1 - Loan originated category and 7 - Preapproved request denied category. 
+ethnicity_loan_table %>%
+  summarise(
+    Total_Records = sum(Count),
+    Total_NA = sum(Count[derived_ethnicity == "Ethnicity Not Available"]),
+    Percent_NA = (Total_NA / Total_Records) * 100
+  )
+
+###5c) Create a two way table of action taken on the loan by applicant age 
+#ONLY using percentages 
+age_loan_table <- FLAL %>% 
+  filter(applicant_age != 'Free Form Text Only') %>% 
+  mutate(
+    action_taken = case_when(
+      action_taken == 1 ~ "1 - Loan originated",
+      action_taken == 2 ~ "2 - Application approved but not accepted",
+      action_taken == 3 ~ "3 - Application denied",
+      action_taken == 4 ~ "4 - Application withdrawn by applicant",
+      action_taken == 5 ~ "5 - File closed for incompleteness",
+      action_taken == 6 ~ "6 - Purchased loan",
+      action_taken == 7 ~ "7 - Preapproval request denied",
+      action_taken == 8 ~ "8 - Preapproval request approved but not accepted",
+      TRUE ~ as.character(action_taken)
+    ),
+    applicant_age = ifelse(applicant_age == "8888", "N/A", applicant_age)
+  ) %>%
+  group_by(action_taken, applicant_age) %>% 
+  summarise(Count = n(), .groups = 'drop') %>%
+  mutate(Percent = (Count / sum(Count)) * 100)
+print(age_loan_table)
+
+
+####
+#6) Provide the following summaries: 
+####
+#a) --- min max and avg loan value by loan type ----
+FLAL <- FLAL %>%
+  ##Changing the numeric loan type into text labels
+  mutate(loan_type = recode(loan_type, 
+                            '1' = 'Conventional', 
+                            '2'= 'FHA', 
+                            '3'= 'VA', 
+                            '4' = 'FSA/RHS'))
+##Creating summary of data
+loan_summary <- FLAL %>%
+  group_by(state_code, activity_year, loan_type) %>%
+  summarise(
+    Min_Loan = min(loan_amount, na.rm = TRUE),
+    Max_Loan = max(loan_amount, na.rm = TRUE),
+    Avg_Loan = mean(loan_amount, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(state_code, activity_year, loan_type)
+print(loan_summary)
+##6b)##Creating the grouped bar chart w/avg loan value by loan purpose
+###
+loan_purpose_chart <- ggplot(
+  loan_purpose_summary,
+  aes(x = factor(activity_year), # Explicitly define x as factor here
+      y = Avg_Loan_Purpose,
+      fill = loan_purpose)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(Avg_Loan_Purpose / 1000, 0),
+                                   big.mark = ',') 
+                       , 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  
+  # Grouping by state and year (***FIXED SYNTAX HERE***)
+  facet_wrap(~state_code, scales = 'free_y') +
+  labs(
+    title = 'Average HMDA Loan Value by Purpose, State, and Year',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Loan Purpose'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+print(loan_purpose_chart)
+
+###6b) Create table of the avg value of loans for 2021 and 2023 by property type
+#Table of avg value of loan amount for 2021 and 2023 by property type
+avg_loanamount_table <- FLAL %>%
+  # Step 1: Data Cleaning and Labeling 
+  mutate(
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # Step 2: Filter for the target years (2021 and 2023)
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, state_code, activity_year) %>% 
+  # Generating summary of loan amounts by property and state
+  summarise(
+    # Calculate the mean
+    Average_Loan_Amount = mean(loan_amount, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Loan Amount ($)` = round(Average_Loan_Amount, 2)
+  ) %>%
+  # Select final columns for table presentation
+  select(
+    `Property Type Label`,
+    State = state_code,
+    Year = activity_year,
+    `Avg Loan Amount ($)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, State, Year)
+
+# Print
+print(avg_loanamount_table)
+
+##6b) Graph the avg loan amount and loan types 
+loan_amount_chart <- ggplot(
+  avg_loanamount_table,
+  aes(x = factor(Year),
+      y = `Avg Loan Amount ($)`,
+      fill = `Property Type Label`)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the averages for each bar
+  geom_text(
+    aes(label = paste0('$', format(round(`Avg Loan Amount ($)` / 1000, 0),
+                                   big.mark = ','), 'K')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3
+  ) +
+  # Grouping by state
+  facet_wrap(~State, scales = 'free_y') +
+  labs(
+    title = 'Average Loan Amount by Property Type, State, and Year (2021 & 2023)',
+    x = 'Activity Year',
+    y = 'Average Loan Amount (USD)',
+    fill = 'Property Type'
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    legend.position = 'bottom'
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_dollar(scale = 1/1000, suffix = 'K')
+  )
+
+print(loan_amount_chart)
+
+###6c) Table of avg value of loan value for 2021 and 2023 by property type
+average_loan_amt_table <- FLAL %>%
+  # Step 1: Data Cleaning and Labeling
+  mutate(
+    # Labeling property types (creating the meaningful label)
+    `Property Type Label` = case_when(
+      derived_dwelling_category == "Single Family (1-4 Units)" ~ "Single Family Residential (1-4 Units)",
+      derived_dwelling_category == "Multifamily (5+ Units)" ~ "Multifamily Investment (5+ Units)",
+      derived_dwelling_category == "Manufactured" ~ "Manufactured Housing",
+      TRUE ~ derived_dwelling_category 
+    )
+  ) %>%
+  # Step 2: Filter for the target years (2021 and 2023) ---
+  filter(activity_year %in% c(2021, 2023)) %>%
+  group_by(`Property Type Label`, activity_year) %>% 
+  # Generating summary of loan amounts by property
+  summarise(
+    # Calculate the mean
+    Average_Loan_Amount = mean(loan_amount, na.rm = TRUE), 
+    Observations = n(), # Count observations that contributed to the average
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    `Avg Loan Amount ($)` = round(Average_Loan_Amount, 2)
+  ) %>%
+  # Select final columns for table 
+  select(
+    `Property Type Label`,
+    Year = activity_year,
+    `Avg Loan Amount ($)`,
+    Observations
+  ) %>%
+  arrange(`Property Type Label`, Year)
+
+# Print the final result table
+print(average_loan_amt_table)
+
+###6d) Create a two way table of actions taken on each loan by occupancy
+#with ONLY count data 
+occupancy_loan_table <- FLAL %>% 
+  mutate(
+    action_taken = case_when(
+      action_taken == 1 ~ "1 - Loan originated",
+      action_taken == 2 ~ "2 - Approved",
+      action_taken == 3 ~ "3 - Denied",
+      action_taken == 4 ~ "4 - Withdrawn",
+      action_taken == 5 ~ "5 - Incomplete",
+      action_taken == 6 ~ "6 - Purchased loan",
+      action_taken == 7 ~ "7 - Preapproval denied",
+      action_taken == 8 ~ "8 - Preapproval approved",
+      TRUE ~ as.character(action_taken)
+    ),
+    occupancy_type = case_when(
+      occupancy_type == 1 ~ "1 - Principal residence",
+      occupancy_type == 2 ~ "2 - Second residence",
+      occupancy_type == 3 ~ "3 - Investment property",
+      TRUE ~ as.character(occupancy_type)
+    )
+  ) %>%
+  group_by(action_taken, occupancy_type) %>% 
+  summarise(
+    Count = n(), 
+    .groups = 'drop'
+  )
+
+print(occupancy_loan_table)
+##6d)iiii) Graphing the occupancy loan table
+occupancy_chart <- ggplot(
+  occupancy_loan_table,
+  aes(x = action_taken,
+      y = Count,
+      fill = occupancy_type)
+) +
+  # Bar Chart
+  geom_col(position = position_dodge(width = 0.9),
+           color = 'black') +
+  # Labeling the counts for each bar
+  geom_text(
+    aes(label = format(Count, big.mark = ',')),
+    position = position_dodge(width = 0.9),
+    vjust = -0.5,
+    size = 3,
+    angle = 0
+  ) +
+  
+  labs(
+    title = 'Loan Actions by Occupancy Type',
+    x = 'Action Taken',
+    y = 'Count',
+    fill = 'Occupancy Type'
+  ) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = 'bold'),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = 'bottom'
+  ) +
+  
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.15)),
+    labels = scales::label_comma()
+  )
+
+print(occupancy_chart)
+
+######
+##7) Filtering the data set and comparing the summary statistics in the rates
+## for open end line of credit and derived ethnicity:
+
+#Finding the summary stats without filters first:
+FLAL %>%
+  group_by(derived_ethnicity, open_end_line_of_credit) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  filter(derived_ethnicity!='Free Form Text Only') %>% 
+  group_by(derived_ethnicity) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+#Filtering the dataset and then running summary statistics:
+FLAL %>%
+  filter(
+    #7a)
+    loan_type == 1,
+    #7b)
+    occupancy_type == 1,
+    #7c)
+    loan_purpose == 1,
+    #7d)
+    reverse_mortgage == 2,
+    derived_ethnicity != "Free Form Text Only"  # Remove free form text
+  ) %>%
+  #Because open end line of credit is a binary/categorical we need to 
+  #use a frequency table
+  group_by(derived_ethnicity, open_end_line_of_credit) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  group_by(derived_ethnicity) %>%
+  mutate(percentage = n / sum(n) * 100)
+##Comparing the two summary stats, we see a difference in the rates. 
+#There is an large decrease in the avg when we apply the filters. 
+#We also see Hispanic/Latino's have a higher avg % after applying filters.
+
+####
+#8) New dataset that is grouped by year, state and county. 
+####
+
+# Recode debt to income ratio first so that it runs with 
+#the summary statistics code
+FLAL_with_dti <- FLAL %>%
+  mutate(
+    # Remove punctuation and extract first two characters
+    dti_numeric = as.numeric(str_sub(gsub("[^0-9]", "", debt_to_income_ratio), 1, 2)),
+    # Create indicator for DTI below 45%
+    dti_below_45 = ifelse(dti_numeric < 45, 1, 0),
+    # Convert interest_rate to numeric
+    interest_rate = as.numeric(interest_rate)
+  )
+
+# Create summary statistics
+FLAL_summary <- FLAL_with_dti %>% 
+  group_by(activity_year, state_code, county_code) %>%
+  summarise(
+    # a) avg interest rate
+    avg_interest_rate = mean(interest_rate, na.rm = TRUE), 
+    # b) percent of loan originations
+    loan_originated = mean(action_taken == 1, na.rm = TRUE) * 100, 
+    # c) Percent of debt to income less than 45
+    pct_dti_below_45 = mean(dti_below_45, na.rm = TRUE) * 100, 
+    # d) Percent of loans from Freddie
+    pct_freddie_mac = mean(purchaser_type == 2, na.rm = TRUE) * 100, 
+    # e) percent of biz or commercial purpose 
+    business_purpose = mean(business_or_commercial_purpose == 1, na.rm = TRUE) * 100,  # Added == 1
+    # total loans in each group
+    n_loans = n(),
+    .groups = 'drop'
+  )
+
+head(FLAL_summary)
+
+####
+#9 Reshape the data for the count of loan approvals by year and county 
+####
+
+##Filtering for loan approvals and creating county counts by yr 
+loan_approvals<- FLAL %>% 
+  filter(action_taken == 1) %>% #Where 1 = loan orginated/approved
+  group_by(activity_year, state_code, county_code) %>% 
+  summarise(count = n(), .groups = 'drop')
+
+#Reshaping the data from long to wide so that we can use count data 
+loan_approvals_wide<- loan_approvals %>% 
+  filter(activity_year %in% c(2021, 2023)) %>% 
+  pivot_wider(
+    names_from = activity_year, 
+    values_from = count, 
+    names_prefix = 'count_'
+  ) %>% 
+  #Only using county identifiers and counts 
+  select(state_code, county_code, count_2021, count_2023)
+
+#9b) calculate % difference 
+loan_approvals_wide<- loan_approvals_wide %>% 
+  mutate(
+    pct_change = ((count_2023 - count_2021)/ count_2021) * 100, 
+    absolute_pct_change = abs(pct_change)
+  )
+
+#9c) Print top 10 counties with largest abs pct changes 
+top_10_changes <- loan_approvals_wide %>% 
+  arrange(desc(absolute_pct_change)) %>% 
+  slice(1:10) %>% 
+  mutate(
+    #sprintf gives us the 2 decimal places after the percent 
+    pct_change_formatted = sprintf("%.2f%%", pct_change) 
+  ) %>%
+  select(state_code, county_code, count_2021, count_2023, pct_change_formatted)
+
+print(top_10_changes)
+
+# 9 appendix - making data compatible with later data
+loan_approvals_long <- loan_approvals_wide %>%
+  # Create County column: last three digits of county_code
+  mutate(
+    County = str_sub(county_code, -3)
+  ) %>%
+  # Pivot counts for 2021 and 2023 into long format
+  pivot_longer(
+    cols = c(count_2021, count_2023),
+    names_to = "Year",
+    values_to = "Loan_Approvals"
+  ) %>%
+  # Convert Year column to numeric
+  mutate(
+    Year = case_when(
+      Year == "count_2021" ~ 2021,
+      Year == "count_2023" ~ 2023
+    )
+  ) 
+
+# Check results
+head(loan_approvals_long)
+
+##Clearing environment for next question
+rm(list = setdiff(ls(), "loan_approvals_wide"))
+gc()
+
+#######
+# 10.	From https://www.bls.gov/lau/#cntyaa get the county level unemployment data for each year.
+#######
+county_21 <- read_excel(here("laucnty21.xlsx"), skip = 1)
+county_23 <- read_excel(here("laucnty23.xlsx"), skip = 1)
+
+######
+# 11. Download annual data from each year from FRED
+######
+#' Setting up a safe wrapper to avoid the fred api 120 requests limit
+safe_fredr <- function(...) {
+  Sys.sleep(0.4)  
+  tryCatch(
+    fredr(...),
+    error = function(e) {
+      Sys.sleep(5)
+      tryCatch(
+        fredr(...),
+        error = function(e2) {
+          return(NULL)
+        }
+      )
+    }
+  )
+}
+#' Setting up a function to extract the annual data if it is annual
+#' Otherwise, it will get Q4 data for each year
+#' Also here we are extracting 2021 and 2023 data
+
+get_county_years <- function(series_id, years = c(2021, 2023)) {
+  dta <- safe_fredr(
+    series_id = series_id,
+    observation_start = as.Date(paste0(min(years), "-01-01")),
+    observation_end   = as.Date(paste0(max(years), "-12-31"))
+  )
+  
+  if (is.null(dta) || nrow(dta) == 0) return(NULL)
+  
+  dta %>%
+    mutate(year = year(date)) %>%
+    filter(year %in% years) %>%
+    group_by(year) %>%
+    slice_max(order_by = date, n = 1) %>%
+    ungroup() %>%
+    mutate(series_id = series_id) %>%
+    select(series_id, year, value)
+}
+
+#' So, if you go to the link given in the prompt, you can find that there is a #'release table when you scroll down. Click on the link to the release table.
+#' If you look at the link of the release table, you will see rid=409. This
+#' is the release ID
+all_series <- fredr_release_series(release_id = 409)
+
+# Now, we are only concerned with Alabama and Florida, so we need to extract the FIPS codes
+al_fl_series <- all_series %>%
+  filter(str_detect(title, ", AL$") | str_detect(title, ", FL$"))
+
+# Now we can extract all the county data from both AL and FL
+al_fl_data <- map_dfr(
+  al_fl_series$id,
+  ~{
+    message(.x)
+    get_county_years(.x)
+  }
+) %>%
+  left_join(
+    al_fl_series %>% select(id, title),
+    by = c("series_id" = "id")
+  )
+
+
+# Save the data as a csv
+write_csv(al_fl_data, "al_fl_counties_subprime_2021_2023.csv")
+
+# Check results
+head(al_fl_data)
+
+
+#Market Hotness: Median Days on the Market --------------------------------------
+safe_fred_fetch <- function(series_id, start_date, end_date) {
+  Sys.sleep(0.4)
+  tryCatch(
+    fredr(series_id = series_id,
+          observation_start = start_date,
+          observation_end   = end_date),
+    error = function(e) {
+      return(NULL)
+    }
+  )
+}
+
+get_series_years <- function(series_id, years = c(2021, 2023)) {
+  data <- safe_fred_fetch(
+    series_id,
+    start_date = as.Date(paste0(min(years), "-01-01")),
+    end_date   = as.Date(paste0(max(years), "-12-31"))
+  )
+  
+  if (is.null(data) || nrow(data) == 0) return(NULL)
+  
+  data %>%
+    mutate(year = year(date)) %>%
+    filter(year %in% years) %>%
+    group_by(year) %>%
+    slice_max(order_by = date, n = 1) %>%
+    ungroup() %>%
+    mutate(series_id = series_id) %>%
+    select(series_id, year, value)
+}
+
+# Get county series IDs ----------------------------------------------------
+# Alabama: counties 1001-1167
+al_series <- paste0("MEDAONMACOUNTY", sprintf("%04d", 1001:1167))  # e.g., counties from 1001‑1067
+
+# Florida
+fl_series <- paste0("MEDAONMACOUNTY", sprintf("%05d", 12001:12167))  
+
+all_series <- c(al_series, fl_series)
+
+
+series_list <- map(all_series, ~get_series_years(.x, years = c(2021, 2023)))
+
+# Combine ----------------------------------------------------------------
+combined <- series_list %>% compact() %>% bind_rows()
+
+# Save --------------------------------------------------------------
+combined <-  write_csv(combined, "MEDAONMACOUNTY_AL_FL_2021_2023.csv")
+
+head(combined)
+
+# Homeownership rate------------------------------------------------------
+
+# Safe wrapper
+fred_safe_fetch <- function(...) {
+  Sys.sleep(0.4)
+  tryCatch(
+    fredr(...),
+    error = function(e) {
+      Sys.sleep(5)
+      tryCatch(
+        fredr(...),
+        error = function(e2) {
+          return(NULL)
+        }
+      )
+    }
+  )
+}
+
+# annual 2021 and 2023 data
+fetch_yearly_series <- function(series_code, years = c(2021, 2023)) {
+  series_data <- fred_safe_fetch(
+    series_id = series_code,
+    observation_start = as.Date(paste0(min(years), "-01-01")),
+    observation_end   = as.Date(paste0(max(years), "-12-31"))
+  )
+  
+  if (is.null(series_data) || nrow(series_data) == 0) return(NULL)
+  
+  series_data %>%
+    mutate(obs_year = year(date)) %>%
+    filter(obs_year %in% years) %>%
+    group_by(obs_year) %>%
+    slice_max(order_by = date, n = 1) %>%
+    ungroup() %>%
+    mutate(series_code = series_code) %>%
+    select(series_code, obs_year, value)
+}
+
+# 406 
+release_406_series <- fredr_release_series(release_id = 406)
+
+# AL and FL
+al_fl_counties_406 <- release_406_series %>%
+  filter(str_detect(title, ", AL$") | str_detect(title, ", FL$"))
+
+# all counties
+county_data_406 <- map_dfr(
+  al_fl_counties_406$id,
+  ~ {
+    message("Downloading series: ", .x)
+    fetch_yearly_series(.x)
+  }
+) %>%
+  left_join(
+    al_fl_counties_406 %>% select(id, title),
+    by = c("series_code" = "id")
+  )
+
+# save as csv
+write_csv(county_data_406, "AL_FL_counties_release406_2021_2023.csv")
+
+# check
+head(county_data_406)
+
+
+
+# Estimated Percent of People of All Ages in Poverty----------------------
+
+# API base
+base_url <- "https://api.census.gov/data/timeseries/poverty/saipe"
+
+# AL and FL codes
+states <- c("01", "12")       
+
+# Years 
+years <- c(2021, 2023)
+
+# Variables 
+vars <- c("NAME", "SAEPOVRTALL_PT")
+
+all_data <- list()
+
+for (yr in years) {
+  
+  query <- list(
+    get = paste(vars, collapse = ","),
+    `for` = "county:*",
+    `in` = paste0("state:", paste(states, collapse = ",")),
+    YEAR = yr
+  )
+  
+  resp <- GET(base_url, query = query)
+
+  data_raw <- fromJSON(rawToChar(resp$content))
+  
+  df <- as_tibble(data_raw[-1, ], .name_repair = "minimal")
+  names(df) <- data_raw[1, ]
+  
+  df_clean <- df %>%
+    mutate(
+      YEAR = as.integer(YEAR),
+      state_fips = state,
+      county_fips = county,
+      poverty_rate = as.numeric(SAEPOVRTALL_PT)
+    ) %>%
+    select(NAME, YEAR, state_fips, county_fips, poverty_rate)
+  
+  all_data[[as.character(yr)]] <- df_clean
+}
+
+# Combine data
+final_data <- bind_rows(all_data)
+
+# Save
+output_file <- "SAIPE_poverty_AL_FL_2021_2023.csv"
+write_csv(final_data, output_file)
+
+# Check
+head(final_data)
+
+
+# Mean Commuting Time for Workers-----------------------------------
+
+# Wrapper
+fred_fetch_safe <- function(...) {
+  Sys.sleep(0.4)
+  tryCatch(
+    fredr(...),
+    error = function(e) {
+      Sys.sleep(5)
+      tryCatch(
+        fredr(...),
+        error = function(e2) {
+          return(NULL)
+        }
+      )
+    }
+  )
+}
+
+# Get 2021 and 2023 data
+pull_annual_vals <- function(series_identifier, years = c(2021, 2023)) {
+  raw <- fred_fetch_safe(
+    series_id = series_identifier,
+    observation_start = as.Date(paste0(min(years), "-01-01")),
+    observation_end   = as.Date(paste0(max(years), "-12-31"))
+  )
+  if (is.null(raw) || nrow(raw) == 0) return(NULL)
+  
+  raw %>%
+    mutate(year_observed = year(date)) %>%
+    filter(year_observed %in% years) %>%
+    group_by(year_observed) %>%
+    slice_max(order_by = date, n = 1) %>%
+    ungroup() %>%
+    mutate(series_identifier = series_identifier) %>%
+    select(series_identifier, year_observed, value)
+}
+
+# 415
+metadata_415 <- fredr_release_series(release_id = 415)
+
+#FL and AL
+al_fl_metadata_415 <- metadata_415 %>%
+  filter(str_detect(title, ", AL$") | str_detect(title, ", FL$"))
+
+al_fl_commute_data <- map_dfr(
+  al_fl_metadata_415$id,
+  ~ {
+    pull_annual_vals(.x)
+  }
+) %>%
+  left_join(al_fl_metadata_415 %>% select(id, title),
+            by = c("series_identifier" = "id"))
+
+# Save
+write_csv(al_fl_commute_data, "AL_FL_commute_mean_2021_2023_release415.csv")
+
+head(al_fl_commute_data)
+
+
+
+
+# Combined Violent and Property Crime Offenses Known to Law Enforcement---------
+crime <- read.csv("C:/Users/emmaf/Downloads/2018-01-01 to 2021-01-01 Combined Violent and Property Crime Offenses Known to Law Enforcement by County (Known Offenses).csv")
+
+crime <- read.csv(here("crime_data.csv"))
+
+
+fl_al_2021 <- crime %>%
+  filter(str_detect(Region.Name, ", AL$") | str_detect(Region.Name, ", FL$")) %>%
+  select(Region.Name, Region.Code, X2021.01.01) %>%
+  rename(Known_Offenses_2021 = X2021.01.01)
+
+# Save CSV
+write_csv(fl_al_2021, "FL_AL_counties_violent_crime_2021.csv")
+
+# Check results
+head(fl_al_2021)
+
+##########
+#12
+##########
+
+# revising equifax dataset
+# Start with al_fl_data
+al_fl_clean <- al_fl_data %>%
+  # Extract state code (last 2 characters of title: AL or FL)
+  mutate(
+    State = str_extract(title, "AL$|FL$"),
+    
+    # Extract county_fips = last 3 digits of series_id
+    county_fips = substr(series_id, nchar(series_id) - 2, nchar(series_id)),
+    
+    # Convert year column
+    Year = year
+  ) %>%
+  # Keep only the years you want
+  filter(Year %in% c(2021, 2023)) %>%
+  # Select cleaned columns
+  select(series_id, county_fips, State, Year, value) %>%
+  rename(Equifax_Subprime = value) %>%
+  rename(County = county_fips)
+
+# Save CSV
+write_csv(al_fl_clean, "AL_FL_counties_subprime_2021_2023.csv")
+
+# Check results
+head(al_fl_clean)
+
+
+
+# revising market hotness dataset -------------------------------------------
+medaonma_clean <- combined %>%
+  # Extract numeric part after "MEDAONMACOUNTY"
+  mutate(
+    FIPS_code = str_remove(series_id, "MEDAONMACOUNTY"),
+    State = case_when(
+      str_starts(FIPS_code, "1") ~ "AL",
+      str_starts(FIPS_code, "12") ~ "FL",
+      TRUE ~ NA_character_
+    ),
+    # County: last three digits
+    County = str_sub(FIPS_code, -3, -1),
+    Year = year  # rename year column
+  ) %>%
+  filter(!is.na(State)) %>%  
+  rename(Market_Hotness = value) %>%
+  select(series_id, State, County, Year, Market_Hotness)
+
+# Save CSV
+write_csv(medaonma_clean, "MEDAONMACOUNTY_AL_FL_2021_2023.csv")
+
+# Check
+head(medaonma_clean)
+
+
+# revising homeownership dataset--------------------------------------------
+homeownership_clean <- county_data_406 %>%
+  mutate(
+    State = str_sub(series_code, 13, 14),   
+    County = str_sub(series_code, 15, 17)    # 3-digit county
+  ) %>%
+  filter(State %in% c("01", "12")) %>%      # only AL & FL
+  filter(obs_year %in% c(2021, 2023)) %>%       # only 2021 & 2023
+  rename(
+    Homeownership_Rate = value,
+    Year = obs_year
+  ) %>%
+  select(series_code, State, County, Year, Homeownership_Rate) %>%
+  mutate(
+    State = case_when(
+      State == "01" ~ "AL",
+      State == "12" ~ "FL",
+      TRUE ~ NA_character_  
+    )
+  )
+
+head(homeownership_clean)
+
+
+
+
+# revising poverty dataset--------------------------------------------
+final_data <- final_data %>%
+  rename(
+    County = county_fips,
+    Year = YEAR,
+    State = state_fips,
+  ) %>%
+  mutate(
+    State = case_when(
+      State == "01" ~ "AL",
+      State == "12" ~ "FL",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Check
+head(final_data)
+
+
+
+
+# revising commuting dataset--------------------------------------------
+al_fl_commute_data_clean <- al_fl_commute_data %>%
+  mutate(
+    state_fips = substr(series_identifier, nchar(series_identifier) - 4, nchar(series_identifier) - 3),
+    County = substr(series_identifier, nchar(series_identifier) - 2, nchar(series_identifier)),  
+    Year = year_observed,
+    State = case_when(
+      state_fips == "01" ~ "AL",
+      state_fips == "12" ~ "FL",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  select(series_identifier, Year, State, County, value, title) %>%
+  rename(Commuting_Time = value)  # or rename to a more appropriate name if needed
+
+# Check 
+head(al_fl_commute_data_clean)
+
+# revising crime dataset--------------------------------------------
+fl_al_2021 <- fl_al_2021 %>%
+  mutate(
+    State = case_when(
+      str_detect(Region.Name, ", AL$") ~ "AL",
+      str_detect(Region.Name, ", FL$") ~ "FL",
+      TRUE ~ NA_character_
+    ),
+    Year = 2021,
+    County = str_sub(Region.Code, -3, -1)  # last three digits of Region.Code
+  )
+
+# Check results
+head(fl_al_2021)
+
+
+#####
+#13
+#####
+# Merge all of fred data sets into single file by county, state, year --------
+# List of datasets to merge
+datasets_to_merge <- list(
+  subprime = al_fl_clean,
+  market_hotness = medaonma_clean,
+  homeownership = homeownership_clean,
+  poverty = final_data,
+  commuting = al_fl_commute_data_clean,
+  crime = fl_al_2021
+)
+# Start with the first dataset
+merged_data <- datasets_to_merge[[1]]
+# Iteratively merge each subsequent dataset
+for (i in 2:length(datasets_to_merge)) {
+  merged_data <- merged_data %>%
+    full_join(datasets_to_merge[[i]], by = c("County", "State", "Year"))
+}
+# Save the final merged dataset
+write_csv(merged_data, "AL_FL_counties_merged_fred_2021_2023.csv")
+# Check the merged data
+head(merged_data)
+
+
+#######
+#14
+######
+# Population data
+al_pop <- read_excel(here("co-est2024-chg-01.xlsx"), skip = 5)
+fl_pop <- read_excel(here("co-est2024-pop-12.xlsx"), skip = 3)
+
+# SNAP Data
+# Get SNAP from SAIPE
+read_saipe_snap <- function(url, year) {
+  df <- read_fwf(
+    file = url,
+    fwf_positions(
+      start = c(1, 4, 8),  
+      end   = c(2, 6, 15),
+      col_names = c("State_FIPS", "County_FIPS", "SNAP_Count")
+    )
+  ) %>%
+    filter(County_FIPS != "000") %>%
+    mutate(
+      Year = year,
+      State = case_when(
+        State_FIPS == "01" ~ "AL",
+        State_FIPS == "12" ~ "FL",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    select(State, County = County_FIPS, Year, SNAP_Count)
+  
+  return(df)
+}
+
+# Use with your URLs
+urls_snap <- list(
+  AL2021 = "https://www2.census.gov/programs-surveys/saipe/datasets/2021/2021-state-and-county/est21-al.txt",
+  FL2021 = "https://www2.census.gov/programs-surveys/saipe/datasets/2021/2021-state-and-county/est21-fl.txt",
+  AL2023 = "https://www2.census.gov/programs-surveys/saipe/datasets/2023/2023-state-and-county/est23-al.txt",
+  FL2023 = "https://www2.census.gov/programs-surveys/saipe/datasets/2023/2023-state-and-county/est23-fl.txt"
+)
+
+snap_data <- bind_rows(
+  read_saipe_snap(urls_snap$AL2021, 2021),
+  read_saipe_snap(urls_snap$AL2023, 2023),
+  read_saipe_snap(urls_snap$FL2021, 2021),
+  read_saipe_snap(urls_snap$FL2023, 2023)
+)
+
+snap_clean <- snap_data %>%
+  mutate(
+    County = str_pad(County, width = 3, side = "left", pad = "0")
+  )
+
+head(snap_clean)
+tail(snap_clean)
+
+
+
+# High School Graduate or higher ---------------------------------------
+#Find Correct Variable using Census API
+vars <- load_variables(2023, "acs5/subject", cache = TRUE)
+hs_vars <- vars %>%
+  filter(grepl("High school graduate or higher", label))
+hs_vars
+
+
+# Variable for High School Graduate or Higher 
+hs_var <- "S1501_C01_014"
+
+# 2021 county‑level data, Alabama & Florida
+hs_2021 <- get_acs(
+  geography = "county",
+  variables = c(HighSchoolRate = "S1501_C02_015E"),
+  state = c("AL", "FL"),
+  year = 2021,
+  survey = "acs5",
+  output = "wide"
+) %>%
+  rename(HighSchoolRate_2021 = HighSchoolRate) %>%  
+  mutate(
+    state = case_when(
+      str_sub(GEOID, 1, 2) == "01" ~ "AL",
+      str_sub(GEOID, 1, 2) == "12" ~ "FL"
+    )
+  ) %>%
+  select(GEOID, NAME, state, HighSchoolRate_2021)
+
+
+# 2023 county‑level data, Alabama & Florida
+hs_2023 <- get_acs(
+  geography = "county",
+  variables = c(HighSchoolRate = "S1501_C02_015E"),  # percent with HS or higher
+  state = c("AL", "FL"),
+  year = 2023,
+  survey = "acs5",
+  output = "wide"
+) %>%
+  rename(HighSchoolRate_2023 = HighSchoolRate) %>%  # 'E' column has estimates
+  mutate(
+    state = case_when(
+      str_sub(GEOID, 1, 2) == "01" ~ "AL",
+      str_sub(GEOID, 1, 2) == "12" ~ "FL"
+    )
+  ) %>%
+  select(GEOID, NAME, state, HighSchoolRate_2023)
+
+# Combine
+highschool_county <- full_join(
+  hs_2021,
+  hs_2023,
+  by = c("GEOID", "NAME", "state")
+)
+
+# View
+head(highschool_county)
+
+highschool_county_long <- highschool_county %>%
+  pivot_longer(
+    cols = starts_with("HighSchoolRate_"),
+    names_to = "Year",
+    values_to = "HighSchoolRate"
+  ) %>%
+  mutate(
+    Year = case_when(
+      Year == "HighSchoolRate_2021" ~ 2021,
+      Year == "HighSchoolRate_2023" ~ 2023
+    )
+  ) %>%
+  select(GEOID, NAME, State, County, Year, HighSchoolRate)
+head(highschool_county_long)
+
+highschool_county <- highschool_county_long %>%
+  mutate(
+    County = str_sub(GEOID, -3, -1),   
+    State = state                       
+  ) %>%
+  select(GEOID, NAME, State, County, HighSchoolRate_2021, HighSchoolRate_2023)
+
+# Check
+head(highschool_county)
+
+
+
+
+
+
+#######
+#15
+#######
+#' Already have SNAP and High School data aggregated by county, state, year
+#' Now, have to work on population
+#' 
+
+# Clean county FIPS table
+fips_table <- tigris::counties(state = "AL", cb = TRUE) %>%
+  st_drop_geometry() %>%
+  select(NAME, COUNTYFP) %>%
+  mutate(
+    CountyName = NAME,                 
+    CountyFIPS = COUNTYFP
+  ) %>%
+  select(CountyName, CountyFIPS)
+
+# Clean AL population data
+pop_clean <- al_pop %>%
+  # Clean county name
+  mutate(
+    CountyName = `Alabama` %>%
+      str_remove("^\\.") %>%          
+      str_remove(", Alabama") %>%      
+      str_remove(" County$") %>%       
+      str_trim(),
+    State = "AL"
+  ) %>%
+  # Keep 2021 + 2023 columns
+  select(CountyName, State, `5049196`, `5117673`) %>%
+  pivot_longer(
+    cols = c(`5049196`, `5117673`),
+    names_to = "Year",
+    values_to = "Population"
+  ) %>%
+  mutate(
+    Year = case_when(
+      Year == "5049196" ~ 2021,
+      Year == "5117673" ~ 2023
+    )
+  ) %>%
+  # JOIN FIPS CODES
+  left_join(fips_table, by = "CountyName") %>%
+  # Rename CountyFIPS to County (you requested this)
+  rename(County = CountyFIPS)
+
+# Check
+head(pop_clean)
+
+
+# Now clean FL population data --------------------------------------------
+colnames(fl_pop)
+
+fl_fips <- tigris::counties(state = "FL", cb = TRUE) %>%
+  st_drop_geometry() %>%
+  select(NAME, COUNTYFP) %>%
+  rename(CountyName = NAME, County = COUNTYFP)
+
+fl_clean <- fl_pop %>%
+  select(`...1`, `2021`, `2023`) %>%
+  filter(str_detect(`...1`, "County, Florida$")) %>%
+  mutate(
+    CountyName = str_remove(`...1`, "^\\.") %>%    
+      str_remove(", Florida") %>%       
+      str_remove(" County$") %>%        
+      str_trim(),
+    State = "FL"
+  ) %>%
+  left_join(fl_fips, by = "CountyName") %>%     
+  pivot_longer(
+    cols = c(`2021`, `2023`),
+    names_to = "Year",
+    values_to = "Population"
+  ) %>%
+  mutate(
+    Year = as.numeric(Year)
+  ) %>%
+  select(County, State, CountyName, Year, Population)
+
+head(fl_clean)
+
+
+# Time to merge AL + FL population data ------------------------------
+population_data <- bind_rows(pop_clean, fl_clean)
+# Check
+head(population_data)
+tail(population_data)
+
+
+# Alright now merge population data, snap data, high school data -------------
+# Ensure County is character in all datasets
+population_data <- population_data %>%
+  mutate(County = as.character(County))
+
+snap_clean <- snap_clean %>%
+  mutate(County = as.character(County))
+snap_clean <- snap_clean %>%
+  mutate(
+    County = str_pad(as.character(County), width = 3, side = "left", pad = "0")
+  )
+
+highschool_clean <- highschool_county %>%
+  mutate(County = as.character(County))
+
+# Now merge
+final_data <- population_data %>%
+  left_join(snap_clean, by = c("County", "State", "Year")) %>%
+  left_join(highschool_county, by = c("County", "State", "Year"))
+
+# Check
+head(final_data)
+
+
+## Finally, we have to merge final_data, merged_data, and loan_approvals_wide by County and Year
+# Ensure County is character in all datasets
+# Convert wide loan approvals to long format
+loan_approvals_long <- loan_approvals_wide %>%
+  # Create a 3-digit County column from county_code
+  mutate(County = str_sub(county_code, -3, -1),
+         State = state_code) %>%
+  # Pivot count_2021 and count_2023 to long format
+  pivot_longer(
+    cols = c(count_2021, count_2023),
+    names_to = "Year",
+    values_to = "Loan_Approvals"
+  ) %>%
+  # Convert Year column to numeric
+  mutate(
+    Year = case_when(
+      Year == "count_2021" ~ 2021,
+      Year == "count_2023" ~ 2023
+    )
+  ) %>%
+  select(County, State, Year, Loan_Approvals)
+
+# Now merge with final_data
+final_merged <- final_data %>%
+  left_join(merged_data, by = c("County", "State", "Year")) %>%
+  left_join(loan_approvals_long, by = c("County", "State", "Year"))
+
+final_merged <- final_merged %>%
+  select(
+    -`Series ID`,
+    -`Series Name`,
+    -Units,
+    -`Region Name`,
+    -`Region Code`,
+    -series_id.x,
+    -series_id.y,
+    -series_code,
+    -NAME,
+    -series_identifier,
+    -title,
+    -Region.Name,
+    -Region.Code
+  )
+
+final_merged <- final_merged %>%
+  select(
+    - GEOID,
+    - NAME.x,
+    - series_id.x,
+    - series_id.y,
+    - series_code,
+    - NAME.y,
+    - series_identifier,
+    - title,
+    - Region.Name
+    - Region.Code
+  )
+    
+
+# Check result
+head(final_merged)
+
+# Save final merged dataset
+write_csv(final_merged, "AL_FL_counties_final_merged_2021_2023.csv")
+
+
+####
+#17
+####
+final_merged <- final_merged %>%
+  # 1. Create Commute Time Bins
+  mutate(
+    Commute_Time_Bins = case_when(
+      Commuting_Time < 20 ~ "Low",
+      Commuting_Time >= 20 & Commuting_Time <= 40 ~ "Middle",
+      Commuting_Time > 40 ~ "High",
+      TRUE ~ NA_character_  # for missing or invalid values
+    ),
+    # 2. Loans per capita
+    Loans_per_Capita = Loan_Approvals / Population,
+    # 3. High School Graduates per capita
+    HighSchoolGrad_per_Capita = HighSchoolRate / Population
+  )
+# Check
+head(final_merged)
+# Save updated dataset
+write_csv(final_merged, "AL_FL_counties_final_merged_with_features_2021_2023.csv")
+
